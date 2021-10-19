@@ -1,0 +1,110 @@
+https://learn.hashicorp.com/tutorials/vault/deployment-guide
+https://comtechies.com/setup-vault-amazon-ec2-instance.html
+
+=================
+Update RHEL OS
+==================
+yum -y update && yum install -y wget unzip nfs-utils policycoreutils-python-utils setroubleshoot-server git make rpm-build
+export PATH=$PATH:/usr/local/bin
+================
+
+VAULT_ZIP="vault.zip"
+VAULT_URL="https://releases.hashicorp.com/vault/1.8.4/vault_1.8.4_linux_amd64.zip"
+curl --silent --output /tmp/${VAULT_ZIP} ${VAULT_URL}
+unzip -o /tmp/${VAULT_ZIP} -d /usr/local/bin
+chmod 755 /usr/local/bin/vault
+chown root:root /usr/local/bin/vault
+vault --version
+
+================
+useradd --system --home /etc/vault.d --shell /bin/false vault
+=====================
+cat << EOF > /etc/vault.d/vault.hcl
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  tls_disable = 1
+}
+
+telemetry {
+  statsite_address = "127.0.0.1:8125"
+  disable_hostname = true
+}
+
+storage "file" {
+  path = "/vault-data"
+}
+
+ui = true
+EOF
+
+
+============================================
+rm -f /etc/systemd/system/vault.service
+touch /etc/systemd/system/vault.service
+
+
+cat << EOF > /etc/systemd/system/vault.service
+[Unit]
+Description="HashiCorp Vault - A tool for managing secrets"
+Documentation=https://www.vaultproject.io/docs/
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=/etc/vault.d/vault.hcl
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+User=vault
+Group=vault
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+SecureBits=keep-caps
+AmbientCapabilities=CAP_IPC_LOCK
+Capabilities=CAP_IPC_LOCK+ep
+CapabilityBoundingSet=CAP_SYSLOG CAP_IPC_LOCK
+NoNewPrivileges=yes
+ExecStart=/usr/local/bin/vault server -config=/etc/vault.d/vault.hcl
+ExecReload=/bin/kill --signal HUP $MAINPID
+KillMode=process
+KillSignal=SIGINT
+Restart=on-abnormal
+RestartSec=5
+TimeoutStopSec=30
+StartLimitInterval=60
+StartLimitIntervalSec=60
+StartLimitBurst=3
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+LogRateLimitIntervalSec=0
+LogRateLimitBurst=0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+======================================
+systemctl enable vault
+systemctl start vault
+systemctl status vault
+
+======================================
+
+cat << EOF > /etc/environment
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+EOF
+
+=============================
+mkdir /etc/vault.d
+chown -R vault:vault /etc/vault.d
+cd /etc/vault.d
+mkdir vault-data
+chown -R vault:vault /vault-data
+chown -R vault:vault vault-data
+mkdir -p /logs/vault/
+
+===============================
+export VAULT_ADDR=http://127.0.0.1:8200
+================================
